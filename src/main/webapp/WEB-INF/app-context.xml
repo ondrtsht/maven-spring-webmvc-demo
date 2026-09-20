@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:mvc="http://www.springframework.org/schema/mvc"
+    xmlns:context="http://www.springframework.org/schema/context"
+    xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd
+                        http://www.springframework.org/schema/mvc https://www.springframework.org/schema/mvc/spring-mvc.xsd
+                        http://www.springframework.org/schema/context https://www.springframework.org/schema/context/spring-context.xsd">
+
+    <!-- @EnableWebMvc に相当 -->
+    <mvc:annotation-driven enable-matrix-variables="true" />
+
+    <!-- @ComponentScan(basePackageClasses = ...) および Controllerのみのフィルタリングに相当 -->
+    <!-- ※提示されたコードに合わせて、アノテーションベースのスキャンを設定しています -->
+    <context:component-scan base-package="com.example.demo" use-default-filters="false">
+        <context:include-filter type="annotation"
+            expression="org.springframework.stereotype.Controller" />
+    </context:component-scan>
+
+    <!-- addResourceHandlers に相当 (静的リソースのマッピング) -->
+    <mvc:resources mapping="/resources/**" location="/resources/" />
+
+    <!-- 1. Thymeleaf Template Resolver -->
+    <bean id="templateResolver"
+        class="org.thymeleaf.spring6.templateresolver.SpringResourceTemplateResolver">
+        <property name="prefix" value="/WEB-INF/templates/" />
+        <property name="suffix" value=".html" />
+        <property name="templateMode" value="HTML" />
+        <property name="characterEncoding" value="UTF-8" />
+        <property name="cacheable" value="true" />
+    </bean>
+
+    <!-- 2. Thymeleaf Template Engine -->
+    <bean id="templateEngine" class="org.thymeleaf.spring6.SpringTemplateEngine">
+        <property name="templateResolver" ref="templateResolver" />
+        <property name="enableSpringELCompiler" value="true" />
+    </bean>
+
+    <!-- 3. Thymeleaf View Resolver (configureViewResolvers に相当) -->
+    <bean id="viewResolver" class="org.thymeleaf.spring6.view.ThymeleafViewResolver">
+        <property name="templateEngine" ref="templateEngine" />
+        <property name="characterEncoding" value="UTF-8" />
+    </bean>
+
+</beans>
