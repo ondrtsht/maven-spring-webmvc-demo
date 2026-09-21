@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>リカバリー - WebAuthn Demo</title>
+</head>
+<body>
+    <h1>リカバリーコードによるログイン</h1>
+    <div>
+        <input type="text" id="username" placeholder="ユーザー名" value="user1"><br><br>
+        <input type="text" id="code" placeholder="リカバリーコード (例: AAAA-1111)"><br><br>
+        <button onclick="verifyRecovery()">ログイン</button>
+    </div>
+    <p id="msg"></p>
+
+    <script>
+        async function verifyRecovery() {
+            const username = document.getElementById('username').value;
+            const code = document.getElementById('code').value;
+            const res = await fetch('/demo/api/auth/webauthn/recovery/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, code })
+            });
+            const data = await res.json();
+            if (data.success) {
+                window.location.href = '/dashboard';
+            } else {
+                document.getElementById('msg').textContent = data.message;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- コンソール (標準出力 STDOUT) への出力設定 -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- WebAuthn 関連コード（対象パッケージ）のログレベル設定 -->
+    <logger name="com.example.demo" level="DEBUG" />
+
+    <!-- Spring Framework 自体のログレベル設定（必要に応じて） -->
+    <logger name="org.springframework.web" level="INFO" />
+
+    <!-- 全体のルートログレベル設定 -->
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+    </root>
+
+</configuration>

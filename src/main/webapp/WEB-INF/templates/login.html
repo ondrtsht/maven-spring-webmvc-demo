@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>ログイン - WebAuthn Demo</title>
+    <!-- SimpleWebAuthn Browser ライブラリ -->
+    <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
+    <style>
+        .login-container {
+            max-width: 400px;
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>ログイン</h1>
+
+    <div class="login-container">
+        <div class="form-group">
+            <label for="username">ユーザー名:</label>
+            <input type="text" id="username" name="username" placeholder="ユーザー名" value="user1" required>
+        </div>
+
+        <div class="btn-group">
+            <!-- 通常ログイン (パスワード不要・Form送信) -->
+            <form id="simple-login-form" action="/demo/login" method="post">
+                <input type="hidden" id="hidden-username" name="username">
+                <button type="submit" id="btn-simple-login">
+                    通常ログイン (パスワード不要)
+                </button>
+            </form>
+
+            <!-- パスキーログイン (JavaScript送信) -->
+            <button type="button" id="btn-passkey-login" class="passkey-btn">
+                パスキーでログイン
+            </button>
+        </div>
+    </div>
+
+    <p><a href="/demo/recovery">リカバリーコードを使用する</a></p>
+
+    <!-- 状態表示用 -->
+    <div id="status"></div>
+    <p id="msg"></p>
+
+    <script>
+        // SimpleWebAuthnBrowser から必要な関数を取り出す
+        const { startAuthentication, browserSupportsWebAuthn } = SimpleWebAuthnBrowser;
+
+        const usernameInput = document.getElementById('username');
+        const passkeyLoginBtn = document.getElementById('btn-passkey-login');
+        const simpleLoginForm = document.getElementById('simple-login-form');
+        const hiddenUsername = document.getElementById('hidden-username');
+        const statusDiv = document.getElementById('status');
+
+        // --------------------------------------------------
+        // 1. 通常ログイン処理 (Form送信時に input の値を同期)
+        // --------------------------------------------------
+        simpleLoginForm.addEventListener('submit', (e) => {
+            const username = usernameInput.value.trim();
+            if (!username) {
+                e.preventDefault();
+                statusDiv.innerText = 'ユーザー名を入力してください。';
+                return;
+            }
+            // 画面上のテキスト入力値を Form の hidden フィールドにセット
+            hiddenUsername.value = username;
+        });
+
+        // --------------------------------------------------
+        // 2. パスキーログイン処理
+        // --------------------------------------------------
+        passkeyLoginBtn.addEventListener('click', async () => {
+            // ブラウザの対応チェック
+            if (!browserSupportsWebAuthn()) {
+                statusDiv.innerText = 'お使いの環境・ブラウザはパスキー認証に対応していません。';
+                return;
+            }
+
+            // 二重送信防止（二重クリックによる InvalidStateError を予防）
+            passkeyLoginBtn.disabled = true;
+            statusDiv.innerText = 'ログインオプションを取得中...';
+
+            try {
+                // サーバーから「認証オプション」を取得
+                const optionsResponse = await fetch('/demo/api/auth/webauthn/login/options', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!optionsResponse.ok) {
+                    throw new Error('SERVER_OPTIONS_ERROR');
+                }
+                const optionsJSON = await optionsResponse.json();
+
+                statusDiv.innerText = 'パスキーを認証中...';
+
+                // ブラウザの認証器（Touch ID / Face ID / Windows Hello / セキュリティキー等）を起動
+                const authenticationResponse = await startAuthentication({ optionsJSON });
+
+                statusDiv.innerText = 'ログイン処理中...';
+
+                // 認証データをサーバーへ送信して検証
+                const verifyResponse = await fetch('/demo/api/auth/webauthn/login/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(authenticationResponse),
+                });
+
+                // ログイン結果の判定
+                if (verifyResponse.ok) {
+                    statusDiv.innerHTML = '<span style="color: green;">ログインに成功しました！</span>';
+                    window.location.href = '/demo/dashboard';
+                } else {
+                    statusDiv.innerHTML = '<span style="color: red;">ログイン検証に失敗しました。</span>';
+                }
+
+            } catch (error) {
+                // 発生した事象（例外の種類やエラー名）ごとに細かく分岐して制御
+                switch (error.name) {
+                    case 'NotAllowedError':
+                        /*
+                         * 【事象の説明】
+                         * - ユーザーが Touch ID / Face ID 等の認証プロンプトで「キャンセル」を押した
+                         * - 認証操作を行わないまま制限時間（タイムアウト）が経過した
+                         * - 端末やセキュリティキー内に、要求されたパスキー（Credential）が存在しない
+                         * - ドメイン（RP ID）の検証に不一致があった
+                         * 
+                         * 【対処法】
+                         * ユーザーの意図的なキャンセルやタイムアウトである場合が多いため、
+                         * 通常はエラー警告を出さずサイレントに状態をリセットするのがデファクトスタンダードです。
+                         */
+                        console.log('事象: ユーザーによるキャンセル、タイムアウト、または利用可能なパスキーが存在しません。');
+                        statusDiv.innerText = '';
+                        break;
+
+                    case 'AbortError':
+                        /*
+                         * 【事象の説明】
+                         * - 認証処理の最中に画面遷移やリロードが行われた
+                         * - JavaScriptの AbortController.abort() により明示的に処理が中断された
+                         * 
+                         * 【対処法】
+                         * 画面操作に伴う正常な中断動作のため、ログを出力しステータス表示をクリアします。
+                         */
+                        console.log('事象: 画面遷移やシグナル受信により認証リクエストが中断されました。');
+                        statusDiv.innerText = '';
+                        break;
+
+                    case 'InvalidStateError':
+                        /*
+                         * 【事象の説明】
+                         * - 既に別のパスキー認証・登録処理がバックグラウンドで進行中であるにもかかわらず、
+                         *   重ねて startAuthentication() が呼び出された
+                         * 
+                         * 【対処法】
+                         * 二重呼び出しを防止するため、ユーザーに警告を表示して前の処理の完了を促します。
+                         */
+                        console.warn('事象: 既に別の認証処理が実行中です。');
+                        statusDiv.innerText = '認証処理が既に進行中です。しばらく待ってから再試行してください。';
+                        break;
+
+                    case 'SecurityError':
+                        /*
+                         * 【事象の説明】
+                         * - 非セキュアな環境（HTTPS ではなく HTTP、かつ localhost 以外）で実行された
+                         * - iframe 内から呼び出された際に必要な権限（allow="publickey-credentials-get"）が付与されていない
+                         * 
+                         * 【対処法】
+                         * セキュリティ要件違反のため、接続URLやオリジン設定の確認を促します。
+                         */
+                        console.error('事象: セキュリティ要件を満たしていません（HTTPSまたはlocalhost接続が必要です）。', error);
+                        statusDiv.innerText = 'セキュリティエラー: 保護された接続（HTTPSまたはlocalhost）でアクセスしてください。';
+                        break;
+
+                    case 'NotSupportedError':
+                        /*
+                         * 【事象の説明】
+                         * - ブラウザまたはOSが WebAuthn の要求機能に対応していない
+                         * - 生体認証やPIN設定がデバイス側でセットアップされていない状態で userVerification="required" が要求された
+                         * 
+                         * 【対処法】
+                         * デバイスの設定（生体認証やPINの登録）を確認するようユーザーに促します。
+                         */
+                        console.error('事象: デバイスまたはブラウザが指定の認証機能をサポートしていません。', error);
+                        statusDiv.innerText = 'お使いの端末で生体認証またはPINが初期設定されているか確認してください。';
+                        break;
+
+                    case 'TypeError':
+                        /*
+                         * 【事象の説明】
+                         * - サーバーから受け取った optionsJSON のフォーマットが不正（challenge等の必須項目が欠損）
+                         * - ネットワーク不通等の理由で fetch 処理のオブジェクト展開に失敗した
+                         * 
+                         * 【対処法】
+                         * 開発時のパラメータ不整合や通信障害の可能性が高いため、ログを残してリトライを案内します。
+                         */
+                        console.error('事象: オプションの形式が正しくないか、データ変換に失敗しました。', error);
+                        statusDiv.innerText = '通信エラーまたはレスポンスデータのフォーマットエラーが発生しました。';
+                        break;
+
+                    default:
+                        /*
+                         * 【事象の説明】
+                         * - サーバー側でのオプション生成失敗（SERVER_OPTIONS_ERROR）
+                         * - 認証デバイス（Authenticator）内部ハードウェアのエラー (UnknownError)
+                         * - その他の予期せぬ例外
+                         */
+                        if (error.message === 'SERVER_OPTIONS_ERROR') {
+                            console.error('事象: サーバー側でログインオプションの作成に失敗しました。');
+                            statusDiv.innerText = 'サーバーエラー: ログインオプションの生成に失敗しました。';
+                        } else {
+                            console.error('事象: 予期せぬエラーが発生しました。', error);
+                            statusDiv.innerText = `エラーが発生しました: ${error.message || error.name}`;
+                        }
+                        break;
+                }
+            } finally {
+                // 処理の正常・異常終了を問わず、必ずボタンの非活性状態を解除して再試行可能にする
+                passkeyLoginBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+
+</html>

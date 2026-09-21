@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>ダッシュボード - WebAuthn Demo</title>
+    <!-- SimpleWebAuthn Browser ライブラリの読み込み -->
+    <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
+</head>
+<body>
+    <h1>ダッシュボード</h1>
+    
+    <!-- パスキー追加登録のプロンプトUI -->
+    <div id="passkey-prompt" style="background: #eef; padding: 15px; border: 1px solid #99f; margin-bottom: 20px;">
+        <p><strong>パスキーを登録していませんか？</strong> 次回から素早くログインできます。</p>
+        <button id="btn-register" onclick="promptRegister()">パスキーを追加登録する</button>
+    </div>
+
+    <p><a href="/demo/settings/passkeys">パスキー設定を管理</a></p>
+    <!-- メッセージ表示エリア -->
+    <p id="msg"></p>
+
+    <script>
+        const { startRegistration, browserSupportsWebAuthn } = SimpleWebAuthnBrowser;
+
+        /**
+         * パスキー登録処理メイン関数
+         */
+        async function promptRegister() {
+            const username = 'user1';
+            const msg = document.getElementById('msg');
+            const btnRegister = document.getElementById('btn-register');
+            
+            // 1. ブラウザの WebAuthn API サポートチェック
+            if (!browserSupportsWebAuthn()) {
+                console.warn('WebAuthn API is not supported on this browser/environment.');
+                msg.textContent = 'お使いのブラウザはパスキーに対応していません。';
+                return;
+            }
+
+            // 連打防止のためのボタン活性制御
+            btnRegister.disabled = true;
+            msg.textContent = '登録オプションを取得中...';
+
+            try {
+                // 2. サーバーから登録オプション (PublicKeyCredentialCreationOptions) を取得
+                const optRes = await fetch('/demo/api/auth/webauthn/register/options', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+
+                if (!optRes.ok) {
+                    console.error('Failed to retrieve registration options from server. Status:', optRes.status);
+                    throw new Error('SERVER_OPTIONS_ERROR');
+                }
+                const options = await optRes.json();
+
+                msg.textContent = 'パスキーを登録中...';
+
+                // 3. ブラウザ認証器 (Touch ID / Face ID / Windows Hello 等) の起動
+                const regResult = await startRegistration({ optionsJSON: options });
+
+                msg.textContent = '登録データを検証中...';
+
+                // 4. 生成されたアテステーションデータをサーバーへ送信して検証
+                const verifyRes = await fetch('/demo/api/auth/webauthn/register/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, response: regResult })
+                });
+
+                // 5. サーバー応答のハンドリング (エラーページパース防止含む)
+                if (verifyRes.ok) {
+                    let resData = {};
+                    try { resData = await verifyRes.json(); } catch(e) {}
+                    msg.innerHTML = `<span style="color: green;">${resData.message || 'パスキーの登録に成功しました！'}</span>`;
+                } else {
+                    let errorMsg = '登録の検証に失敗しました。';
+                    try {
+                        const errData = await verifyRes.json();
+                        if (errData.message) errorMsg = errData.message;
+                    } catch (e) {
+                        console.error('サーバーが非JSON形式（HTMLエラーページ等）を返却しました。サーバーログを確認してください。');
+                    }
+                    msg.innerHTML = `<span style="color: red;">${errorMsg}</span>`;
+                }
+
+            } catch (error) {
+                // クライアント側（ブラウザ・認証器）の具体的なエラー分類と例外処理
+                switch (error.name) {
+                    case 'NotAllowedError':
+                        /*
+                         * 【具体的事象】
+                         * - ユーザーが Touch ID / Face ID / Windows Hello の生体認証ダイアログで「キャンセル」をクリックした。
+                         * - 認証プロンプトが表示されたままタイムアウト（通常数分）した。
+                         */
+                        console.log('事象: ユーザーにより認証がキャンセルされたか、操作がタイムアウトしました。');
+                        msg.textContent = '';
+                        break;
+
+                    case 'AbortError':
+                        /*
+                         * 【具体的事象】
+                         * - 認証処理中にユーザーが別ページへ遷移した、またはページのリロードが行われた。
+                         */
+                        console.log('事象: 画面遷移等により登録処理が中断されました。');
+                        msg.textContent = '';
+                        break;
+
+                    case 'InvalidStateError':
+                        /*
+                         * 【具体的事象】
+                         * - このデバイス/セキュリティキーには、既に同一アカウントの認証情報（Credential）が保存されている。
+                         */
+                        console.warn('事象: このパスキーは既に登録されています。');
+                        msg.textContent = 'このパスキーは既に登録されています。';
+                        break;
+
+                    case 'SecurityError':
+                        /*
+                         * 【具体的事象】
+                         * - ドメイン要件違反。非暗号化接続（http://かつlocalhost以外）からのアクセスや、RP IDの不一致。
+                         */
+                        console.error('事象: セキュリティ要件違反。HTTPS または localhost 環境で動作しているか確認してください。', error);
+                        msg.textContent = 'セキュリティエラー: 保護された接続でアクセスしてください。';
+                        break;
+
+                    case 'NotSupportedError':
+                        /*
+                         * 【具体的事象】
+                         * - 端末が生体認証やプラットフォーム認証器をサポートしていない、または無効化されている。
+                         */
+                        console.error('事象: デバイスまたはブラウザが要求された認証機能をサポートしていません。', error);
+                        msg.textContent = 'お使いの端末で生体認証またはPINが設定されているか確認してください。';
+                        break;
+
+                    default:
+                        if (error.message === 'SERVER_OPTIONS_ERROR') {
+                            msg.textContent = 'サーバーエラー: 登録オプションの取得に失敗しました。';
+                        } else {
+                            console.error('登録中に予期せぬエラーが発生しました:', error);
+                            msg.textContent = '登録エラー: ' + (error.message || error.name);
+                        }
+                        break;
+                }
+            } finally {
+                // ボタンの活性状態を復元
+                btnRegister.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
