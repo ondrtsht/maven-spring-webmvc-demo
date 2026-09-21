@@ -19,6 +19,7 @@ import com.webauthn4j.util.Base64UrlUtil;
 import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -80,6 +81,7 @@ public class WebAuthnService {
      * @param rpId            Relying Party ID (ドメイン名)
      * @param origin          リクエスト元の Origin URL
      */
+    @Autowired
     public WebAuthnService(
             WebAuthnManager webAuthnManager,
             @Value("${webauthn.rp-id:localhost}") String rpId,
