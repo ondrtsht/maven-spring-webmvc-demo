@@ -117,15 +117,12 @@ public class WebAuthnService {
         AuthenticatorSelectionCriteria selection = new AuthenticatorSelectionCriteria(
                 AuthenticatorAttachment.PLATFORM,
                 false,
-                isUpgrade ? UserVerificationRequirement.DISCOURAGED
-                        : UserVerificationRequirement.PREFERRED);
+                isUpgrade ? UserVerificationRequirement.DISCOURAGED : UserVerificationRequirement.PREFERRED);
 
         // 4. 対応する公開鍵暗号アルゴリズム（ES256, RS256）を指定
         List<PublicKeyCredentialParameters> pubKeyCredParams = Arrays.asList(
-                new PublicKeyCredentialParameters(PublicKeyCredentialType.PUBLIC_KEY,
-                        COSEAlgorithmIdentifier.ES256),
-                new PublicKeyCredentialParameters(PublicKeyCredentialType.PUBLIC_KEY,
-                        COSEAlgorithmIdentifier.RS256));
+                new PublicKeyCredentialParameters(PublicKeyCredentialType.PUBLIC_KEY, COSEAlgorithmIdentifier.ES256),
+                new PublicKeyCredentialParameters(PublicKeyCredentialType.PUBLIC_KEY, COSEAlgorithmIdentifier.RS256));
 
         // 5. 登録オプション全体の作成
         PublicKeyCredentialCreationOptions options = new PublicKeyCredentialCreationOptions(
@@ -171,8 +168,7 @@ public class WebAuthnService {
         if (challenge == null) {
             // [調整] セッション切れ等はクライアント由来のエラーのため WARN
             log.warn("Registration failed for user [{}]: Challenge not found in session.", username);
-            throw new IllegalStateException(
-                    "Challenge not found in session. Please restart registration process.");
+            throw new IllegalStateException("Challenge not found in session. Please restart registration process.");
         }
 
         ServerProperty serverProperty = new ServerProperty(
@@ -182,15 +178,13 @@ public class WebAuthnService {
 
         // 2. DTO構造およびヌルチェック (W3C/SimpleWebAuthn 2重ネストデータ構造の安全対策)
         if (request == null || request.response() == null || request.response().response() == null) {
-            log.warn("Registration failed for user [{}]: Payload is null or invalid nest structure.",
-                    username);
+            log.warn("Registration failed for user [{}]: Payload is null or invalid nest structure.", username);
             throw new IllegalArgumentException("Registration response payload must not be null.");
         }
 
         var attestationResp = request.response().response();
         if (attestationResp.attestationObject() == null || attestationResp.clientDataJSON() == null) {
-            log.warn("Registration failed for user [{}]: attestationObject or clientDataJSON is missing.",
-                    username);
+            log.warn("Registration failed for user [{}]: attestationObject or clientDataJSON is missing.", username);
             throw new IllegalArgumentException("attestationObject or clientDataJSON is missing.");
         }
 
@@ -227,11 +221,9 @@ public class WebAuthnService {
                 registrationData.getTransports());
 
         String credId = request.response().id(); // ルート要素から Credential ID を取得
-        CredentialStoreMock mockRecord = new CredentialStoreMock(username, credId, credentialRecord,
-                "My Passkey");
+        CredentialStoreMock mockRecord = new CredentialStoreMock(username, credId, credentialRecord, "My Passkey");
 
-        List<CredentialStoreMock> userRecords = mockDb.computeIfAbsent(username,
-                k -> new CopyOnWriteArrayList<>());
+        List<CredentialStoreMock> userRecords = mockDb.computeIfAbsent(username, k -> new CopyOnWriteArrayList<>());
         // 同一 Credential ID がすでに存在する場合は置換
         userRecords.removeIf(r -> r.getCredentialId().equals(credId));
         userRecords.add(mockRecord);
@@ -331,8 +323,8 @@ public class WebAuthnService {
             AuthenticationData authData = webAuthnManager.parse(authRequest);
             webAuthnManager.verify(authData, authParameters);
             // [調整] 重要なセキュリティイベント（認証成功）は INFO で明確に記録
-            log.info("Passkey login successful for user [{}] with Credential ID [{}]",
-                    mockStore.getUsername(), maskCredentialId(request.id()));
+            log.info("Passkey login successful for user [{}] with Credential ID [{}]", mockStore.getUsername(),
+                    maskCredentialId(request.id()));
         } catch (Exception e) {
             log.warn("Cryptographic signature verification failed for user [{}] (Credential ID: [{}]): {}",
                     mockStore.getUsername(), maskCredentialId(request.id()), e.getMessage());
@@ -373,8 +365,7 @@ public class WebAuthnService {
         if (mock != null && username.equals(mock.getUsername())) {
             mock.setUserVerifiedName(newName);
         } else {
-            log.warn("Credential ID [{}] not found for update for user [{}]",
-                    maskCredentialId(credentialId), username);
+            log.warn("Credential ID [{}] not found for update for user [{}]", maskCredentialId(credentialId), username);
         }
     }
 
@@ -385,15 +376,14 @@ public class WebAuthnService {
      * @param credentialId 削除対象の Credential ID
      */
     public void deleteCredential(String username, String credentialId) {
-        log.info("Deleting credential for user [{}], Credential ID [{}]", username,
-                maskCredentialId(credentialId));
+        log.info("Deleting credential for user [{}], Credential ID [{}]", username, maskCredentialId(credentialId));
         List<CredentialStoreMock> records = mockDb.getOrDefault(username, Collections.emptyList());
         boolean removed = records.removeIf(r -> r.getCredentialId().equals(credentialId));
         if (removed) {
             credentialIndex.remove(credentialId);
         } else {
-            log.warn("Credential ID [{}] was not found for deletion for user [{}]",
-                    maskCredentialId(credentialId), username);
+            log.warn("Credential ID [{}] was not found for deletion for user [{}]", maskCredentialId(credentialId),
+                    username);
         }
     }
 
