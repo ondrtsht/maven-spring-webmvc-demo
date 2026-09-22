@@ -8,7 +8,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import java.util.List;
 
@@ -76,7 +78,8 @@ public class WebAuthnAPIController {
      * @return レスポンス (200 OK または 401 UNAUTHORIZED)
      */
     @PostMapping("/register/verify")
-    public ResponseEntity<Void> verifyRegister(@RequestBody WebAuthnDto.RegistrationVerifyRequest request, HttpSession session) {
+    public ResponseEntity<Void> verifyRegister(@RequestBody WebAuthnDto.RegistrationVerifyRequest request,
+            HttpSession session) {
         String username = getLoginUser(session);
         if (username == null) {
             log.warn("WebAuthn register verification requested by unauthenticated user.");
@@ -122,10 +125,14 @@ public class WebAuthnAPIController {
      * @return 認証されたユーザー名
      */
     @PostMapping("/login/verify")
-    public ResponseEntity<String> verifyLogin(@RequestBody WebAuthnDto.AuthenticationVerifyRequest request, HttpSession session) {
+    public ResponseEntity<String> verifyLogin(
+            @RequestBody WebAuthnDto.AuthenticationVerifyRequest request,
+            HttpServletRequest httpRequest,
+            HttpSession session) {
         log.info("Verifying WebAuthn login for credential ID: {}", request.id());
         try {
             String authenticatedUsername = webAuthnService.verifyLogin(request, session);
+            httpRequest.changeSessionId();
             session.setAttribute(LoginController.SESSION_USER_KEY, authenticatedUsername);
             log.info("WebAuthn login successful for user: {}", authenticatedUsername);
             return ResponseEntity.ok(authenticatedUsername);
@@ -187,19 +194,14 @@ public class WebAuthnAPIController {
      * ユーザーの登録済みパスキー一覧を取得します (`/credentials` および `/passkeys` の両エンドポイントに対応)。
      * 
      * @param paramUsername クエリパラメータで指定されたユーザー名（任意）
-     * @param session HTTPセッション
+     * @param session       HTTPセッション
      * @return パスキー一覧リスト
      */
-    @GetMapping({"/credentials", "/passkeys"})
+    @GetMapping({ "/credentials", "/passkeys" })
     public ResponseEntity<List<WebAuthnDto.CredentialResponse>> getCredentials(
             @RequestParam(value = "username", required = false) String paramUsername,
             HttpSession session) {
-        // 優先順位: 1. セッションユーザー 2. リクエストパラメータ 3. デフォルト補完 ("user1")
-        String username = getLoginUser(session);
-        if (username == null) {
-            username = (paramUsername != null && !paramUsername.isBlank()) ? paramUsername : "user1";
-            log.warn("Session user not found. Falling back to username: {}", username);
-        }
+        String username = requireLoginUser(session);
 
         log.info("Fetching credentials for user: {}", username);
         try {
@@ -215,20 +217,17 @@ public class WebAuthnAPIController {
      * パスキーの表示名を更新します (PATCH および PUT に両対応)。
      * 
      * @param credentialId パス変数から渡される Key ID (任意)
-     * @param request リクエストボディ (Credential ID および新名称を含む)
-     * @param session HTTPセッション
+     * @param request      リクエストボディ (Credential ID および新名称を含む)
+     * @param session      HTTPセッション
      * @return レスポンス (200 OK)
      */
-    @RequestMapping(value = {"/credentials/{credentialId}", "/passkeys"}, method = {RequestMethod.PATCH, RequestMethod.PUT})
+    @RequestMapping(value = { "/credentials/{credentialId}", "/passkeys" }, method = { RequestMethod.PATCH,
+            RequestMethod.PUT })
     public ResponseEntity<Void> updateCredential(
             @PathVariable(required = false) String credentialId,
             @RequestBody WebAuthnDto.UpdateCredentialRequest request,
             HttpSession session) {
-        String username = getLoginUser(session);
-        if (username == null) {
-            username = "user1";
-            log.warn("Session user not found for credential update. Falling back to 'user1'.");
-        }
+        String username = requireLoginUser(session);
 
         // URLパスで ID が指定されていない場合は、Body から補完
         String targetId = (credentialId != null) ? credentialId : request.credentialId();
@@ -248,16 +247,12 @@ public class WebAuthnAPIController {
      * 登録済みのパスキーを削除します。
      * 
      * @param credentialId 削除対象の Credential ID
-     * @param session HTTPセッション
+     * @param session      HTTPセッション
      * @return レスポンス (200 OK)
      */
-    @DeleteMapping({"/credentials/{credentialId}", "/passkeys/{credentialId}"})
+    @DeleteMapping({ "/credentials/{credentialId}", "/passkeys/{credentialId}" })
     public ResponseEntity<Void> deleteCredential(@PathVariable String credentialId, HttpSession session) {
-        String username = getLoginUser(session);
-        if (username == null) {
-            username = "user1";
-            log.warn("Session user not found for credential deletion. Falling back to 'user1'.");
-        }
+        String username = requireLoginUser(session);
 
         log.info("Deleting credential [{}] for user: {}", credentialId, username);
         try {
@@ -269,4 +264,14 @@ public class WebAuthnAPIController {
             throw e;
         }
     }
+
+    private String requireLoginUser(HttpSession session) {
+        String username = getLoginUser(session);
+        if (username == null || username.isBlank()) {
+            log.debug("Session user not found.");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
+        }
+        return username;
+    }
+
 }

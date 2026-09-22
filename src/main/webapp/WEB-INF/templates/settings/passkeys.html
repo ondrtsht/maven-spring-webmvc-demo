@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org" lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <title>パスキー管理 - WebAuthn Demo</title>
 </head>
+
 <body>
     <h1>登録済みパスキーの管理</h1>
     <button onclick="loadPasskeys()">一覧を更新</button>
@@ -12,25 +14,50 @@
 
     <script>
         async function loadPasskeys() {
-            const res = await fetch('/demo/api/auth/webauthn/passkeys?username=user1');
+            const res = await fetch('/demo/api/auth/webauthn/passkeys');
+            if (!res.ok) {
+                document.getElementById('msg').textContent =
+                    'パスキー一覧の取得に失敗しました。';
+                return;
+            }
+
             const list = await res.json();
             const ul = document.getElementById('passkey-list');
-            ul.innerHTML = '';
+
+            ul.replaceChildren();
 
             list.forEach(item => {
                 const li = document.createElement('li');
-                li.innerHTML = `
-                    <strong>${item.name}</strong> (作成日: ${item.createdAt})
-                    <button onclick="renamePasskey('${item.id}')">名前変更</button>
-                    <button onclick="deletePasskey('${item.id}')">削除</button>
-                `;
+
+                const strong = document.createElement('strong');
+                strong.textContent = item.userVerifiedName;
+
+                const renameButton = document.createElement('button');
+                renameButton.textContent = '名前変更';
+                renameButton.addEventListener('click', () => {
+                    renamePasskey(item.credentialId);
+                });
+
+                const deleteButton = document.createElement('button');
+                deleteButton.textContent = '削除';
+                deleteButton.addEventListener('click', () => {
+                    deletePasskey(item.credentialId);
+                });
+
+                li.append(
+                    strong,
+                    document.createTextNode(' '),
+                    renameButton,
+                    document.createTextNode(' '),
+                    deleteButton
+                );
                 ul.appendChild(li);
             });
         }
 
         async function deletePasskey(id) {
             if (!confirm('削除しますか？')) return;
-            const res = await fetch(`/demo/api/auth/webauthn/passkeys/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/demo/api/auth/webauthn/passkeys`, { method: 'DELETE' });
             const data = await res.json();
             document.getElementById('msg').textContent = data.message;
             loadPasskeys();
@@ -39,7 +66,7 @@
         async function renamePasskey(id) {
             const name = prompt('新しい名前を入力してください:');
             if (!name) return;
-            const res = await fetch(`/demo/api/auth/webauthn/passkeys/${id}`, {
+            const res = await fetch(`/demo/api/auth/webauthn/passkeys`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name })
@@ -52,4 +79,5 @@
         loadPasskeys();
     </script>
 </body>
+
 </html>

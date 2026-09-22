@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 
 @Controller
@@ -30,12 +31,16 @@ public class LoginController {
      * 通常ログイン (パスワード不要・ユーザー名のみでログイン)
      */
     @PostMapping("/login")
-    public String login(@RequestParam("username") String username, HttpSession session) {
+    public String login(
+            @RequestParam("username") String username,
+            HttpServletRequest request,
+            HttpSession session) {
         if (username == null || username.isBlank()) {
             return "redirect:/login?error=empty";
         }
 
         // セッションにユーザー情報を保存（ログイン状態にする）
+        request.changeSessionId();
         session.setAttribute("LOGIN_USER", username);
 
         // ログイン後のダッシュボードへリダイレクト
