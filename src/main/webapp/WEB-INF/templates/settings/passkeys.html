@@ -57,7 +57,7 @@
 
         async function deletePasskey(id) {
             if (!confirm('削除しますか？')) return;
-            const res = await fetch(`/demo/api/auth/webauthn/passkeys`, { method: 'DELETE' });
+            const res = await fetch(`/demo/api/auth/webauthn/passkeys/${encodeURIComponent(id)}`,`, { method: 'DELETE' });
             const data = await res.json();
             document.getElementById('msg').textContent = data.message;
             loadPasskeys();

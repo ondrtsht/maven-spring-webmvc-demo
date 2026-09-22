@@ -115,11 +115,29 @@ public class WebAuthnService {
                 username,
                 username);
 
-        // 3. 認証器の選択要件を設定（内蔵認証器 PLATFORM を指定）
+        // 3. 認証器の選択要件
+        //
+        // これは「どの種類の認証器を許可するか」に関する設計項目。
+        // 一般公開サービスとして、Platform Authenticator（OS組み込みの
+        // Windows Hello / Touch ID / Face ID 等）に限定せず、
+        // Cross-Platform Authenticator（FIDO2 セキュリティキー等）も
+        // 利用可能とするため、AuthenticatorAttachment は指定しない。
+        //
+        // Resident Key は Passkey / Discoverable Credential の利用を考慮し、
+        // PREFERRED とする。これにより対応している認証器では
+        // discoverable credential を利用できる一方、非対応の認証器を
+        // 一律に排除しない。
+        //
+        // User Verification は通常 PREFERRED とする。
+        // ただし、パスワードレス認証として運用する場合は、認証時の
+        // AuthenticationParameters で userVerificationRequired=true として
+        // サーバー側でも UV を必須条件として検証する。
         AuthenticatorSelectionCriteria selection = new AuthenticatorSelectionCriteria(
-                AuthenticatorAttachment.PLATFORM,
-                false,
-                isUpgrade ? UserVerificationRequirement.DISCOURAGED : UserVerificationRequirement.PREFERRED);
+                null,
+                ResidentKeyRequirement.PREFERRED,
+                isUpgrade
+                        ? UserVerificationRequirement.DISCOURAGED
+                        : UserVerificationRequirement.PREFERRED);
 
         // 4. 対応する公開鍵暗号アルゴリズム（ES256, RS256）を指定
         List<PublicKeyCredentialParameters> pubKeyCredParams = Arrays.asList(
@@ -135,6 +153,9 @@ public class WebAuthnService {
                 60000L, // タイムアウト 60秒
                 Collections.emptyList(),
                 selection,
+                // Attestation の取得方針も一般公開サービス向けの設計判断。
+                // 特定の認証器を識別・管理する必要はないため、認証器の attestation 情報は要求しない。
+                // これにより認証器の選択肢を広く保ち、不要な識別情報の取得も避ける。
                 AttestationConveyancePreference.NONE,
                 new AuthenticationExtensionsClientInputs<RegistrationExtensionClientInput>());
 
